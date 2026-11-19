@@ -37,7 +37,7 @@ SPEC = LanguageSpec(
     manifest_files=("package.json", "vite.config.js", "nuxt.config.ts"),
     # Bundler config, not a package declaration — package.json is the root.
     build_config_manifests=("vite.config.js", "nuxt.config.ts"),
-    lock_files=("package-lock.json", "yarn.lock", "pnpm-lock.yaml"),
+    lock_files=("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb"),
     blocked_dirs=("node_modules", ".nuxt", ".output", "dist", "build"),
     # Vue's compiler macros and template intrinsics. These are compiler
     # intrinsics, not user functions — they must never mint a call edge.

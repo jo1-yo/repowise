@@ -72,7 +72,7 @@ SPEC = LanguageSpec(
     ),
     entry_point_patterns=("index.ts", "main.ts", "app.ts", "server.ts"),
     manifest_files=("package.json",),
-    lock_files=("package-lock.json", "yarn.lock", "pnpm-lock.yaml"),
+    lock_files=("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb"),
     generated_suffixes=("_pb.ts",),
     shebang_tokens=(),
     blocked_dirs=("node_modules", ".next", "dist", "build"),
