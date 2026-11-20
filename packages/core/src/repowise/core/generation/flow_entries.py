@@ -36,6 +36,7 @@ from repowise.core.fs_walk import walk_repo
 from repowise.core.ingestion.symbol_identity import file_of_symbol, make_symbol_id
 from repowise.core.support_paths import DOC_EXTENSIONS, is_support_path
 from repowise.core.test_paths import is_test_path
+from repowise.core.workspace.extractors.http.mounts import compose_prefix, router_prefixes
 
 #: ``path -> lines`` of a repository file, empty when it cannot be read.
 LineReader = Callable[[str], list[str]]
@@ -88,7 +89,7 @@ def line_reader(repo_root: Path | str | None, source_map: Mapping[str, bytes] | 
 _CLI_DECO = re.compile(r"^@(?:\w+\.)*(?:command|group)\s*\(\s*(?:name\s*=\s*)?(?:[\"']([\w-]+)[\"'])?")
 _TOOL_DECO = re.compile(r"^@(?:\w+\.)*tool\b")
 _ROUTE_DECO = re.compile(
-    r"^@\w+(?:\.\w+)*\.(?:route|get|post|put|delete|patch|websocket|api_route)\(\s*[\"']([^\"']+)"
+    r"^@(\w+)(?:\.\w+)*\.(?:route|get|post|put|delete|patch|websocket|api_route)\(\s*[\"']([^\"']+)"
 )
 _GO_NAME = re.compile(r"^func \(\w+ \*?(\w+)\) Name\(\) string \{")
 _GO_RETURN = re.compile(r'\s*return "([\w-]+)"')
@@ -134,7 +135,12 @@ def _cli_public(program: str, command: str) -> str:
     return command if not program or command == program else f"{program} {command}"
 
 
-def _decorator_entry(node: str, attrs: Mapping[str, Any], program: str) -> Entry | None:
+def _decorator_entry(
+    node: str,
+    attrs: Mapping[str, Any],
+    program: str,
+    prefixes: Mapping[str, str] | None = None,
+) -> Entry | None:
     """The entry a Python decorator declares on *node*, if any."""
     name = attrs.get("name") or ""
     for text in attrs.get("decorators") or ():
@@ -146,7 +152,10 @@ def _decorator_entry(node: str, attrs: Mapping[str, Any], program: str) -> Entry
         if _TOOL_DECO.match(text):
             return Entry(node, TOOL, name)
         if m := _ROUTE_DECO.match(text):
-            return Entry(node, ROUTE, m.group(1))
+            var, path = m.group(1), m.group(2)
+            if prefixes:
+                path = compose_prefix(prefixes.get(var, ""), path)
+            return Entry(node, ROUTE, path)
     return None
 
 
@@ -254,12 +263,19 @@ def script_for(path: str, scripts: Mapping[str, str], default: str) -> str:
     return min(hits)[3] if hits else default
 
 
-def _decorated_entries(graph: Any, program: str, scripts: Mapping[str, str]) -> Iterable[Entry]:
+def _decorated_entries(
+    graph: Any, program: str, scripts: Mapping[str, str], read: LineReader
+) -> Iterable[Entry]:
+    prefix_cache: dict[str, dict[str, str]] = {}
     for node, attrs in graph.nodes(data=True):
         if attrs.get("node_type") != "symbol" or attrs.get("kind") not in _CALLABLE:
             continue
         path = attrs.get("file_path") or ""
-        entry = _decorator_entry(node, attrs, script_for(path, scripts, program))
+        if path not in prefix_cache:
+            prefix_cache[path] = router_prefixes("\n".join(read(path)), "APIRouter")
+        entry = _decorator_entry(
+            node, attrs, script_for(path, scripts, program), prefix_cache[path]
+        )
         if entry and _production(path):
             yield entry
 
@@ -283,7 +299,7 @@ def declared_entries(
     inits = sorted(p for p in _file_paths(graph) if _production(p))
     out: dict[str, Entry] = {}
     for entry in (
-        *_decorated_entries(graph, program, scripts or {}),
+        *_decorated_entries(graph, program, scripts or {}, read),
         *_go_entries(by_file, graph, read, program),
         *_python_public_api(inits, by_file, read),
     ):
